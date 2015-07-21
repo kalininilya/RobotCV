@@ -1,3 +1,4 @@
+ï»¿
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <cmath>
@@ -12,226 +13,214 @@ const int FRAME_HEIGHT = 240;
 
 static double angle(Point pt1, Point pt2, Point pt0)
 {
-	double dx1 = pt1.x - pt0.x;
-	double dy1 = pt1.y - pt0.y;
-	double dx2 = pt2.x - pt0.x;
-	double dy2 = pt2.y - pt0.y;
-	return (dx1*dx2 + dy1*dy2) / sqrt((dx1*dx1 + dy1*dy1)*(dx2*dx2 + dy2*dy2) + 1e-10);
+  double dx1 = pt1.x - pt0.x;
+  double dy1 = pt1.y - pt0.y;
+  double dx2 = pt2.x - pt0.x;
+  double dy2 = pt2.y - pt0.y;
+  return (dx1*dx2 + dy1*dy2) / sqrt((dx1*dx1 + dy1*dy1)*(dx2*dx2 + dy2*dy2) + 1e-10);
 }
 
+template<typename T>
+bool CheckCrossParams(vector<T> cross)
+{
+  for (int j = 0; j < cross.size() - 3; j++)
+  {
+    double ang1 = angle(cross[j], cross[j + 1], cross[j + 2]);
+    double ang2 = angle(cross[j + 1], cross[j + 2], cross[j + 3]);
+    if (ang1 > 0.7)
+    {
+      if (!(ang1 > 0.7 && ang2 > 0.3))
+      {
+        return false;
+      }
+    }
+  }
+
+  // Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐºÐ° ÑÐ¾Ð¾Ñ‚Ð½Ð¾ÑˆÐµÐ½Ð¸Ð¹ ÑˆÐ¸Ñ€Ð¸Ð½Ñ‹/Ð´Ð»Ð¸Ð½Ñ‹ ÑÑ‚Ð¾Ñ€Ð¾Ð½ ÐºÑ€ÐµÑÑ‚Ð°
+  int length_top = (abs(cross[0].x - cross[2].x) + abs(cross[0].y - cross[2].y))/2;
+  int length_bot = (abs(cross[2].x - cross[3].x) + abs(cross[2].y - cross[3].y)) / 2;
+  int length_left = (abs(cross[1].x - cross[2].x) + abs(cross[1].y - cross[2].y)) / 2;
+  int length_right = (abs(cross[2].x - cross[4].x) + abs(cross[2].y - cross[4].y)) / 2;
+  if (length_top == 0 || length_bot == 0 || length_left == 0 || length_right == 0) return false;
+  printf("top: %d\t bot: %d\t left: %d\t right:%d \n", length_top, length_bot, length_left, length_right);
+
+  double eps = 0.3;
+  if ((length_top / length_bot) - 1  > eps) return false;
+  if ((length_left / length_right) - 1 > eps) return false;
+
+  double ratio1 = ((abs(length_top - length_bot) / length_top + abs(length_top - length_bot) / length_bot))/2;
+  double ratio2 = ((abs(length_left - length_right) / length_left + abs(length_left - length_right) / length_right))/2;
+
+  
+
+  if (abs(ratio1 + ratio2) / 2  > 0.23)
+  {
+    return false;
+  }
+  return true;
+}
+
+int averageColor(Mat src, int x1, int x2, int y1, int y2){
+  LineIterator it(src, Point(x1, y1), Point(x2, y2), 8);
+  vector<Vec3b> buf(it.count);
+  vector<Point> points(it.count);
+
+  int avg_sum = 0;
+  for (int i = 0; i < it.count; i++, ++it)
+  {
+    points[i] = it.pos();
+    Vec3b colour = src.at<Vec3b>(points[i]);
+    avg_sum += (colour.val[0] + colour.val[1] + colour.val[2]) / 3;
+  }
+  avg_sum = avg_sum / it.count;
+  return avg_sum;
+}
+
+Point intersection(Point p1, Point p2, Point p3, Point p4) {
+
+  double x1 = p1.x, x2 = p2.x, x3 = p3.x, x4 = p4.x;
+  double y1 = p1.y, y2 = p2.y, y3 = p3.y, y4 = p4.y;
+
+  double d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  // If d is zero, there is no intersection
+  if (d == 0) return NULL;
+
+  // Get the x and y
+  double pre = (x1*y2 - y1*x2), post = (x3*y4 - y3*x4);
+  double x = (pre * (x3 - x4) - (x1 - x2) * post) / d;
+  double y = (pre * (y3 - y4) - (y1 - y2) * post) / d;
+
+  // Check if the x and y coordinates are within both lines
+  if (x < min(x1, x2) || x > max(x1, x2) ||
+    x < min(x3, x4) || x > max(x3, x4)) return NULL;
+  if (y < min(y1, y2) || y > max(y1, y2) ||
+    y < min(y3, y4) || y > max(y3, y4)) return NULL;
+
+  // Return the point of intersection
+  Point ret;
+  ret.x = x;
+  ret.y = y;
+  return ret;
+}
 
 RotatedRect rRect;
 int aPDcoeff_int = 20;
 double tresholdmin = 0.6;
 int tresholdmin_int = 6;
 int tresholdmax_int = 6;
-int tresholdCannyMin = 1400;
+int tresholdCannyMin = 1100;
 int tresholdCannyMax = 1500;
 
 int main()
 {
-	Mat src = imread("img1.jpg");
-	if (src.empty())
-		return -1;
+  Mat src = imread("img1.jpg");
+  if (src.empty())
+    return -1;
 
-	namedWindow("Control", CV_WINDOW_AUTOSIZE);
-	createTrackbar("tresholdCannyMin", "Control", &tresholdCannyMin, 2000);
-	createTrackbar("tresholdCannyMax", "Control", &tresholdCannyMax, 2000);
-	createTrackbar("aPDcoeff", "Control", &aPDcoeff_int, 1000);
+  namedWindow("Control", CV_WINDOW_AUTOSIZE);
+  createTrackbar("tresholdCannyMin", "Control", &tresholdCannyMin, 2000);
+  createTrackbar("tresholdCannyMax", "Control", &tresholdCannyMax, 2000);
+  createTrackbar("aPDcoeff", "Control", &aPDcoeff_int, 1000);
 
-	VideoCapture capture;
-	capture.open(0);
+  VideoCapture capture;
+  capture.open(0);
 
-	capture.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
-	capture.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
+  capture.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
+  capture.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
 
-	Mat display;
-	vector<Mat> contours;
-	vector<Point> approx;
-	vector<Point>hull;
-	bool isfinish = true;
-	while (isfinish){
+  Mat display;
+  vector<Mat> contours;
+  vector<Point> approx;
+  vector<Point>hull;
+  vector<Point>cross (5);
+  while (true){
 
-		bool iscross = true;
+    bool iscross = true;
 
-		double aPDcoeff = (double)aPDcoeff_int / 1000;
-		if (aPDcoeff <= 0) aPDcoeff = 0.01;
-		capture.read(src);
+    double aPDcoeff = (double)aPDcoeff_int / 1000;
+    if (aPDcoeff <= 0) aPDcoeff = 0.01;
+    capture.read(src);
 
-		display= src.clone();
+    display = src.clone();
 
-		Mat gray;
-		cvtColor(src, gray, CV_BGR2GRAY);
+    line(src, Point(0, 0), Point(FRAME_WIDTH, 0), CV_RGB(255, 0, 0), 3);
+    line(src, Point(FRAME_WIDTH, 0), Point(FRAME_WIDTH, FRAME_HEIGHT), CV_RGB(255, 0, 0), 3);
+    line(src, Point(FRAME_WIDTH, FRAME_HEIGHT), Point(0, FRAME_HEIGHT), CV_RGB(255, 0, 0), 3);
+    line(src, Point(0, FRAME_HEIGHT), Point(0, 0), CV_RGB(255, 0, 0), 3);
 
-		Mat bw;
-		Canny(gray, bw, tresholdCannyMin, tresholdCannyMax, 5);
+    Mat gray;
+    Mat bw;
+    Mat blurr;
+    cvtColor(src, gray, CV_BGR2GRAY);
 
+    blur(gray, gray, Point(3, 3));
 
-		line(bw, Point(0, 0), Point(FRAME_WIDTH, 0), CV_RGB(255, 0, 0), 2);
-		line(bw, Point(FRAME_WIDTH, 0), Point(FRAME_WIDTH - 1, FRAME_HEIGHT - 1), CV_RGB(255, 0, 0), 2);
-		line(bw, Point(FRAME_WIDTH, FRAME_HEIGHT), Point(0, FRAME_HEIGHT - 1), CV_RGB(255, 0, 0), 2);
-		line(bw, Point(0, FRAME_HEIGHT), Point(0, 0), CV_RGB(255, 0, 0), 2);
+    //threshold(gray, bw, tresholdCannyMin, tresholdCannyMax, THRESH_OTSU);
 
-		findContours(bw.clone(), contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
+    Canny(gray, bw, tresholdCannyMin, tresholdCannyMax, 5);
 
+    findContours(bw.clone(), contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
 
-		
-		//vector<vector<Point> >hull(contours.size());
-		aPDcoeff = 0.01;
-		for (int i = 0; i < contours.size(); i++)
-		{
-			//arcLength(Mat(contours[i]), true)*aPDcoeff
-			approxPolyDP(Mat(contours[i]), approx, arcLength(Mat(contours[i]), true)*aPDcoeff, true);
-			//!(approx.size() == 8)
-			if (fabs(contourArea(contours[i])) < 50|| isContourConvex(approx))
-				continue;
+    for (int i = 0; i < contours.size(); i++)
+    {
+      approxPolyDP(Mat(contours[i]), approx, arcLength(Mat(contours[i]), true)*aPDcoeff, true);
 
-			
+      if (fabs(contourArea(contours[i])) < 200 || isContourConvex(approx))
+        continue;
 
-			convexHull(Mat(contours[i]), hull, false);
-			
-			
-			//cont_avgs[i] = 5;
+      convexHull(Mat(contours[i]), hull, false);
 
-			rRect = minAreaRect(contours[i]);
+      
+      double ColoredPercentage = double(contourArea(contours[i])) / double(contourArea(hull));
+      //printf("%f \n ", ColoredPercentage);
+      if (ColoredPercentage > 0.35 || ColoredPercentage < 0.2) continue;
 
+      
 
+      //Ð½Ð°Ñ…Ð¾Ð¶Ð´ÐµÐ½Ð¸Ðµ ÑƒÐ³Ð»Ð¾Ð² ÐºÑ€ÐµÑÑ‚Ð°
+      int max_x = 0;
+      int max_y = 0;
+      int min_x = FRAME_WIDTH + 1;
+      int min_y = FRAME_HEIGHT + 1;
+      int i1, i2, i3, i4;
+      for (int i = 0; i < hull.size(); i++){
+        if (hull[i].x > max_x) { max_x = hull[i].x; i1 = i; }
+        if (hull[i].y > max_y) { max_y = hull[i].y; i2 = i; }
+        if (hull[i].x < min_x) { min_x = hull[i].x; i3 = i; }
+        if (hull[i].y < min_y) { min_y = hull[i].y; i4 = i; }
+      }
 
-			Point2f vertices[4];
-			rRect.points(vertices);
-			for (int i = 0; i < 4; i++){
-				//line(display, vertices[i], vertices[(i + 1) % 4], Scalar(255, 255, 0));
+      Point inter = intersection(Point(min_x, hull[i3].y), Point(max_x, hull[i1].y), Point(hull[i4].x, min_y), Point(hull[i2].x, max_y));
 
-			}
+      cross[0] = Point(hull[i2].x, max_y);
+      cross[1] = Point(min_x, hull[i3].y);
+      cross[2] = inter;
+      cross[3] = Point(hull[i4].x, min_y);
+      cross[4] = Point(max_x, hull[i1].y);
 
-			LineIterator it(src, vertices[0], vertices[2], 8);
-			vector<Vec3b> buf(it.count);
-			vector<Point> points(it.count);
-			//line(display, vertices[0], vertices[2], Scalar(255, 255, 0));
-			int avg_sum = 0;
-			for (int i = 0; i < it.count; i++, ++it)
-			{
-				points[i] = it.pos();
-				Vec3b colour = src.at<Vec3b>(points[i]);
-				avg_sum += (colour.val[0] + colour.val[1] + colour.val[2])/3;
-				if (it.count - i - 1 == 0)  avg_sum = avg_sum / i;
-			}
+      if (!CheckCrossParams(cross)) continue;
 
-			LineIterator it2(src, vertices[1], vertices[3], 8);
-			vector<Vec3b> buf2(it2.count);
-			vector<Point> points2(it2.count);
-			//line(display, vertices[1], vertices[3], Scalar(255, 255, 0));
-			int avg_sum2 = 0;
-			for (int i = 0; i < it2.count; i++, ++it2)
-			{
-				points2[i] = it2.pos();
-				Vec3b colour = src.at<Vec3b>(points2[i]);
-				avg_sum2 += (colour.val[0] + colour.val[1] + colour.val[2]) / 3;
-				if (it2.count - i - 1 == 0) avg_sum2 = avg_sum2 / i;
-			}
-			//printf("%d \t %d \n", avg_sum, avg_sum2);
-			//if (((avg_sum + avg_sum2) / 2) > 40) continue;
-			
-			
-			//int IntercectX = ((vertices[i].x + vertices[i + 2].x) / 2 + (vertices[i+1].x + vertices[i  +3].x) / 2)/2;
-			//int IntercectY = ((vertices[i].y + vertices[i + 2].y) / 2 + (vertices[i + 1].y + vertices[i + 3].y) / 2) / 2;
+      line(display, Point(min_x, hull[i3].y), Point(max_x, hull[i1].y), Scalar(255, 0, 0));
+      line(display, Point(hull[i4].x, min_y), Point(hull[i2].x, max_y), Scalar(255, 0, 0));
 
-			//circle(src, Point(IntercectX, IntercectY), 2, Scalar(0, 0, 255), 1, 8, 0);
+      circle(display, inter, 3, Scalar(0, 0, 255), -1, 8, 0);
+
+      int k = 0;
+      for (k = 0; k < hull.size() - 1; k++){
+        line(display, hull[k], hull[k + 1], CV_RGB(0, 255, 0), 1);
+        string s = to_string(k);
+      }
+      line(display, hull[k], hull[0], CV_RGB(0, 255, 0), 1);
+
+    }
+    
 
 
-			
-			int k = 0;
-			for (k = 0; k < hull.size() - 1; k++){
-				line(display, hull[k], hull[k + 1], CV_RGB(0, 255, 0), 1);
-				string s = to_string(k);
-				//putText(display, s, Point(hull[k].x, hull[k].y), FONT_HERSHEY_PLAIN, 1.0, CV_RGB(255, 255, 0), 0.5);
-			}
-			line(display, hull[k], hull[0], CV_RGB(0, 255, 0), 1);
-			
-			
+    imshow("display", display);
+    imshow("bw", bw);
 
-
-			/*
-
-
-			int eps = 4;
-			double eps2 = 0.3;
-
-			double x0 = approx[0].x;
-			double x1 = approx[1].x;
-			double x2 = approx[2].x;
-			double x3 = approx[3].x;
-			double x4 = approx[4].x;
-			double x5 = approx[5].x;
-			double x6 = approx[6].x;
-			double x7 = approx[7].x;
-
-			double y0 = approx[0].y;
-			double y1 = approx[1].y;
-			double y2 = approx[2].y;
-			double y3 = approx[3].y;
-			double y4 = approx[4].y;
-			double y5 = approx[5].y;
-			double y6 = approx[6].y;
-			double y7 = approx[7].y;
-
-
-			//ñîîòíîùåíèå ìàëîé è áîëüøîé ñòîðîíû êðåñòà ~0.5
-			double length_top = (((abs(x0 - x1) + abs(x0 - x7)) / 2) + ((abs(y0 - y1) + abs(y0 - y7)) / 2)) / 2;
-			double length_bot = (((abs(x3 - x4) + abs(x4 - x5)) / 2) + ((abs(y3 - y4) + abs(y4 - y5)) / 2)) / 2;
-			double ratio1 = ((((length_top + length_bot) / length_top - 0.5) + ((length_top + length_bot) / length_bot - 0.5))) / 2 - 0.5;
-
-
-			double length_left = (((abs(x2 - x1) + abs(x2 - x3)) / 2) + ((abs(y2 - y1) + abs(y2 - y3)) / 2)) / 2;
-			double length_right = (((abs(x6 - x7) + abs(x6 - x5)) / 2) + ((abs(y6 - y7) + abs(y6 - y5)) / 2)) / 2;
-			double ratio2 = ((((length_left + length_right) / length_left - 0.5) + ((length_left + length_right) / length_right - 0.5))) / 2 - 0.5;
-
-			//printf("ratio1: %f \t,ratio2: %f \t sr: %f\n", ratio1, ratio2, (ratio1 + ratio2) / 2);
-
-			if (abs((ratio1 + ratio2) / 2 - 1) > 0.1) {
-				iscross = false; continue;
-			};
-			for (int j = 0; j < approx.size() - 6; j++){
-				double ang1 = angle(approx[j], approx[j + 1], approx[j + 2]);
-				double ang2 = angle(approx[j + 1], approx[j + 2], approx[j + 3]);
-				printf("ang1: %f\t, ang2: %f \n", ang1, ang2);
-				if (ang1>0.7){
-					if (!(ang1>0.7 && ang2 < 0.3)) { iscross = false; continue; }
-				}
-			}
-
-
-
-			if (iscross) putText(display, "Cross detected", Point(10, 200), FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.0);
-
-
-
-			*/
-			/*
-			k = 0;
-			for (k = 0; k < approx.size() - 1; k++){
-				line(display, approx[k], approx[k + 1], CV_RGB(255, 0, 0), 1);
-			}
-			line(display, approx[k], approx[0], CV_RGB(255, 0, 0),	1);
-			*/
-			//for (int j = 0; j < approx.size(); j++){
-			//string s = to_string(approx.size());
-				//putText(display, s, Point(approx[j].x, approx[j].y), FONT_HERSHEY_PLAIN, 1.0, CV_RGB(255, 255, 0), 0.5);
-			//}
-			//putText(display, s, Point(approx[1].x, approx[1].y), FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 0.5);
-
-			
-			}
-		
-		
-		
-		imshow("src", display);
-		imshow("bw", bw);
-		
-		waitKey(1);
-
-		//isfinish = false;
-	}
-	getchar();
-	return 0;
+    waitKey(1);
+  }
+  getchar();
+  return 0;
 }
